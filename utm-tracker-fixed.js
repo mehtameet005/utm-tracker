@@ -1,10 +1,3 @@
-/**
- * UTM & User Interaction Tracker Plugin (Enhanced Navigation Support + Auto Consent for Testing)
- * Author: Senior Full-Stack Developer & Analytics Engineer
- * Description: Captures UTM params, tracks user actions & navigation,
- *              pushes data to CRM or Google Sheets, and provides reporting.
- */
-
 (function (window, document) {
   const CONFIG = {
     cookieExpirationDays: 90,
@@ -81,6 +74,7 @@
         body: JSON.stringify(data),
       }).catch(console.error);
     }
+
     if (CONFIG.googleSheetsWebhook) {
       fetch(CONFIG.googleSheetsWebhook, {
         method: 'POST',
@@ -183,38 +177,18 @@
     watchForForms();
   }
 
-  function trackPageViewsOnNavigation() {
-    let lastURL = location.href;
-
-    function detectChange() {
-      const currentURL = location.href;
-      if (currentURL !== lastURL) {
-        lastURL = currentURL;
-        logEvent('page_view');
-      }
-    }
-
-    const originalPushState = history.pushState;
-    history.pushState = function () {
-      originalPushState.apply(this, arguments);
-      detectChange();
-    };
-
-    window.addEventListener('popstate', detectChange);
-    window.addEventListener('hashchange', detectChange);
-  }
-
   window.addEventListener('DOMContentLoaded', () => {
     if (!hasConsent()) return;
 
     const utmParams = getUTMParamsFromURL();
-    if (Object.keys(utmParams).length && !getStoredUTMData()) {
+
+    // ✅ Always update UTM data if params exist in URL
+    if (Object.keys(utmParams).length) {
       storeUTMParams(utmParams);
     }
 
     logEvent('page_view');
     attachEventListeners();
-    trackPageViewsOnNavigation();
 
     if (
       typeof window.UTMTrackerConfig === 'object' &&
