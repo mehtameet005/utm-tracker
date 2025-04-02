@@ -1,22 +1,18 @@
 /**
- * UTM & User Interaction Tracker Plugin
+ * UTM & User Interaction Tracker Plugin (Autonomous Version)
  * Author: Senior Full-Stack Developer & Analytics Engineer
- * Description: Captures UTM params, tracks user actions, pushes data to CRM or Google Sheets,
- *              and provides reporting functionality. GDPR/CCPA compliant.
+ * Description: Captures UTM params, auto-detects and tracks user actions,
+ *              pushes data to CRM or Google Sheets, and provides reporting.
+ *              Requires no backend access. GDPR/CCPA compliant.
  */
 
 (function (window, document) {
-  // CONFIGURATION OPTIONS
   const CONFIG = {
     cookieExpirationDays: 90,
-    apiEndpoint: '', // e.g., 'https://your-crm-api.com/track'
-    googleSheetsWebhook: '', // e.g., 'https://script.google.com/.../exec'
+    apiEndpoint: '',
+    googleSheetsWebhook: '',
     consentCookieName: 'tracking_consent',
-    customSelectors: {
-      buttonClicks: '[data-track-click]',
-      formSubmissions: 'form[data-track-form]',
-    },
-    reportGeneration: 'manual', // 'manual' or 'auto'
+    reportGeneration: 'manual',
   };
 
   const UTM_PARAMS = ['utm_source', 'utm_medium', 'utm_campaign', 'utm_term', 'utm_content'];
@@ -58,7 +54,6 @@
     return localData ? JSON.parse(localData) : null;
   }
 
-  // Modified: Default to consent=true if cookie is missing
   function hasConsent() {
     const value = getCookie(CONFIG.consentCookieName);
     return value === null || value === 'true';
@@ -133,32 +128,43 @@
   }
 
   function attachEventListeners() {
-    document.querySelectorAll(CONFIG.customSelectors.buttonClicks).forEach((el) => {
-      el.addEventListener('click', (e) => {
-        logEvent('button_click', {
-          elementText: e.target.innerText,
-          elementId: e.target.id || null,
+    document.querySelectorAll('button, a, input[type="submit"]').forEach((el) => {
+      if (
+        el.innerText?.match(/sign\s?up|submit|buy|book|download|get/i) ||
+        el.value?.match(/sign\s?up|submit|buy|book|download|get/i)
+      ) {
+        el.addEventListener('click', (e) => {
+          logEvent('button_click', {
+            elementText: e.target.innerText || e.target.value,
+            elementId: e.target.id || null,
+          });
         });
-      });
+      }
     });
 
-    document.querySelectorAll(CONFIG.customSelectors.formSubmissions).forEach((form) => {
-      form.addEventListener('submit', (e) => {
-        const formData = new FormData(form);
-        const fields = {};
-        formData.forEach((value, key) => {
-          fields[key] = value;
-        });
+    document.querySelectorAll('form').forEach((form) => {
+      if (form.querySelector('input[type="email"]') && !form.dataset.tracked) {
+        form.dataset.tracked = 'true';
+        form.addEventListener('submit', (e) => {
+          try {
+            const formData = new FormData(form);
+            const fields = {};
+            formData.forEach((value, key) => {
+              fields[key] = value;
+            });
 
-        logEvent('form_submission', {
-          formId: form.id || null,
-          fields,
+            logEvent('form_submission', {
+              formId: form.id || null,
+              fields,
+            });
+          } catch (err) {
+            console.error('Tracking error on form:', err);
+          }
         });
-      });
+      }
     });
   }
 
-  // Initialization Block
   (function init() {
     if (!hasConsent()) return;
 
@@ -171,7 +177,6 @@
     attachEventListeners();
   })();
 
-  // Expose manual report generation if needed
   window.UTMTracker = {
     generateReport,
     logEvent,
@@ -179,42 +184,14 @@
 })(window, document);
 
 /**
- * INTEGRATION EXAMPLE
- * <script src="/path/to/utm-tracker.js"></script>
+ * DROP-IN EMBED SNIPPET:
  * <script>
- *   // Optional override config
  *   window.UTMTrackerConfig = {
- *     cookieExpirationDays: 60,
- *     apiEndpoint: 'https://crm.example.com/api/events',
- *     googleSheetsWebhook: 'https://script.google.com/macros/s/AKfy.../exec',
+ *     cookieExpirationDays: 90,
+ *     apiEndpoint: '',
+ *     googleSheetsWebhook: '',
  *     reportGeneration: 'manual'
  *   };
  * </script>
- */
-
-/**
- * SAMPLE REPORT OUTPUT (JSON)
- * {
- *   totalEvents: 12,
- *   utmSources: {
- *     "google": 6,
- *     "facebook": 3
- *   },
- *   funnel: {
- *     "page_view": 6,
- *     "button_click": 3,
- *     "form_submission": 2,
- *     "purchase": 1
- *   },
- *   timeMetrics: {
- *     "{\"utm_source\":\"google\"}": [0, 1200, 2500],
- *     ...
- *   },
- *   userJourneys: {
- *     "{\"utm_source\":\"google\"}": [
- *       { "event": "page_view", "time": "2025-04-02T10:00:00Z" },
- *       { "event": "form_submission", "time": "2025-04-02T10:01:00Z" }
- *     ]
- *   }
- * }
+ * <script src="https://cdn.jsdelivr.net/gh/mehtameet005/utm-tracker@main/utm-tracker.js"></script>
  */
