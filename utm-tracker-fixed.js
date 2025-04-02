@@ -1,10 +1,8 @@
-
 /**
- * UTM & User Interaction Tracker Plugin (Autonomous + DOM Ready + Dynamic Form Support)
+ * UTM & User Interaction Tracker Plugin (Enhanced Navigation Support + Auto Consent for Testing)
  * Author: Senior Full-Stack Developer & Analytics Engineer
- * Description: Captures UTM params, tracks user actions including dynamically loaded forms,
+ * Description: Captures UTM params, tracks user actions & navigation,
  *              pushes data to CRM or Google Sheets, and provides reporting.
- *              Fully autonomous and GDPR/CCPA compliant.
  */
 
 (function (window, document) {
@@ -185,6 +183,27 @@
     watchForForms();
   }
 
+  function trackPageViewsOnNavigation() {
+    let lastURL = location.href;
+
+    function detectChange() {
+      const currentURL = location.href;
+      if (currentURL !== lastURL) {
+        lastURL = currentURL;
+        logEvent('page_view');
+      }
+    }
+
+    const originalPushState = history.pushState;
+    history.pushState = function () {
+      originalPushState.apply(this, arguments);
+      detectChange();
+    };
+
+    window.addEventListener('popstate', detectChange);
+    window.addEventListener('hashchange', detectChange);
+  }
+
   window.addEventListener('DOMContentLoaded', () => {
     if (!hasConsent()) return;
 
@@ -195,8 +214,8 @@
 
     logEvent('page_view');
     attachEventListeners();
+    trackPageViewsOnNavigation();
 
-    // ✅ Auto-report logic added
     if (
       typeof window.UTMTrackerConfig === 'object' &&
       window.UTMTrackerConfig.reportGeneration === 'auto'
