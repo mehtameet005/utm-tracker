@@ -1,7 +1,7 @@
 /**
- * UTM & User Interaction Tracker Plugin (Autonomous + DOM Ready Fix)
+ * UTM & User Interaction Tracker Plugin (Autonomous + DOM Ready + Dynamic Form Support)
  * Author: Senior Full-Stack Developer & Analytics Engineer
- * Description: Captures UTM params, auto-detects and tracks user actions,
+ * Description: Captures UTM params, tracks user actions including dynamically loaded forms,
  *              pushes data to CRM or Google Sheets, and provides reporting.
  *              Fully autonomous and GDPR/CCPA compliant.
  */
@@ -127,7 +127,7 @@
     return report;
   }
 
-  function attachEventListeners() {
+  function attachClickListeners() {
     document.querySelectorAll('button, a, input[type="submit"]').forEach((el) => {
       if (
         el.innerText?.match(/sign\s?up|submit|buy|book|download|get/i) ||
@@ -141,7 +141,9 @@
         });
       }
     });
+  }
 
+  function attachFormListeners() {
     document.querySelectorAll('form').forEach((form) => {
       if (form.querySelector('input[type="email"]') && !form.dataset.tracked) {
         form.dataset.tracked = 'true';
@@ -165,7 +167,23 @@
     });
   }
 
-  // Ensure execution after DOM is fully ready
+  function watchForForms() {
+    const observer = new MutationObserver(() => {
+      attachFormListeners();
+    });
+
+    observer.observe(document.body, {
+      childList: true,
+      subtree: true,
+    });
+  }
+
+  function attachEventListeners() {
+    attachClickListeners();
+    attachFormListeners();
+    watchForForms();
+  }
+
   window.addEventListener('DOMContentLoaded', () => {
     if (!hasConsent()) return;
 
