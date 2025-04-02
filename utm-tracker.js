@@ -58,8 +58,10 @@
     return localData ? JSON.parse(localData) : null;
   }
 
+  // Modified: Default to consent=true if cookie is missing
   function hasConsent() {
-    return getCookie(CONFIG.consentCookieName) === 'true';
+    const value = getCookie(CONFIG.consentCookieName);
+    return value === null || value === 'true';
   }
 
   function logEvent(type, details = {}) {
