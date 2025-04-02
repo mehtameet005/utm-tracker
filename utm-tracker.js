@@ -1,9 +1,9 @@
 /**
- * UTM & User Interaction Tracker Plugin (Autonomous Version)
+ * UTM & User Interaction Tracker Plugin (Autonomous + DOM Ready Fix)
  * Author: Senior Full-Stack Developer & Analytics Engineer
  * Description: Captures UTM params, auto-detects and tracks user actions,
  *              pushes data to CRM or Google Sheets, and provides reporting.
- *              Requires no backend access. GDPR/CCPA compliant.
+ *              Fully autonomous and GDPR/CCPA compliant.
  */
 
 (function (window, document) {
@@ -165,7 +165,8 @@
     });
   }
 
-  (function init() {
+  // Ensure execution after DOM is fully ready
+  window.addEventListener('DOMContentLoaded', () => {
     if (!hasConsent()) return;
 
     const utmParams = getUTMParamsFromURL();
@@ -175,7 +176,7 @@
 
     logEvent('page_view');
     attachEventListeners();
-  })();
+  });
 
   window.UTMTracker = {
     generateReport,
