@@ -1,8 +1,10 @@
+<!-- UTM Tracker Config + Script (Auto Consent & Persistence Fixes) -->
+<script>
 (function (window, document) {
   const CONFIG = {
     cookieExpirationDays: 90,
-    apiEndpoint: '', // Optional CRM endpoint
-    googleSheetsWebhook: '', // Optional Google Sheets webhook
+    apiEndpoint: '', // Optional CRM POST endpoint
+    googleSheetsWebhook: '', // Optional webhook for Google Sheets
     consentCookieName: 'tracking_consent',
     reportGeneration: 'auto', // 'manual' or 'auto'
   };
@@ -10,6 +12,7 @@
   const UTM_PARAMS = ['utm_source', 'utm_medium', 'utm_campaign', 'utm_term', 'utm_content'];
   const STORAGE_KEY = 'utm_tracking_data';
 
+  // Cookie utilities
   function getCookie(name) {
     const value = `; ${document.cookie}`;
     const parts = value.split(`; ${name}=`);
@@ -21,30 +24,40 @@
     document.cookie = `${name}=${encodeURIComponent(value)}; expires=${expires}; path=/`;
   }
 
+  // UTM functions
   function getUTMParamsFromURL() {
     const params = new URLSearchParams(window.location.search);
     const result = {};
     UTM_PARAMS.forEach((key) => {
-      if (params.has(key)) {
-        result[key] = params.get(key);
-      }
+      if (params.has(key)) result[key] = params.get(key);
     });
     return result;
   }
 
   function storeUTMParams(utmData) {
-    const stored = {
+    const data = {
       ...utmData,
       firstVisit: new Date().toISOString(),
     };
-    const storedJSON = JSON.stringify(stored);
-    localStorage.setItem(STORAGE_KEY, storedJSON);
-    setCookie(STORAGE_KEY, storedJSON, CONFIG.cookieExpirationDays);
+    const json = JSON.stringify(data);
+    localStorage.setItem(STORAGE_KEY, json);
+    setCookie(STORAGE_KEY, json, CONFIG.cookieExpirationDays);
   }
 
   function getStoredUTMData() {
-    const data = localStorage.getItem(STORAGE_KEY);
-    return data ? JSON.parse(data) : null;
+    const fromLocal = localStorage.getItem(STORAGE_KEY);
+    return fromLocal ? JSON.parse(fromLocal) : null;
+  }
+
+  function restoreUTMFromCookie() {
+    const fromCookie = getCookie(STORAGE_KEY);
+    if (fromCookie && !getStoredUTMData()) {
+      try {
+        localStorage.setItem(STORAGE_KEY, fromCookie);
+      } catch (e) {
+        console.warn('⚠️ UTM cookie restore failed:', e);
+      }
+    }
   }
 
   function hasConsent() {
@@ -65,7 +78,7 @@
     };
 
     pushToDestinations(event);
-    addToReportLog(event);
+    reportLog.push(event);
   }
 
   function pushToDestinations(data) {
@@ -85,11 +98,8 @@
     }
   }
 
+  // Reporting system
   const reportLog = [];
-
-  function addToReportLog(event) {
-    reportLog.push(event);
-  }
 
   function generateReport() {
     const report = {
@@ -101,36 +111,27 @@
     };
 
     const userStart = {};
-
     reportLog.forEach((entry) => {
       const source = entry.utm?.utm_source || 'unknown';
       report.utmSources[source] = (report.utmSources[source] || 0) + 1;
 
-      if (!report.funnel[entry.eventType]) {
-        report.funnel[entry.eventType] = 0;
-      }
-      report.funnel[entry.eventType]++;
+      report.funnel[entry.eventType] = (report.funnel[entry.eventType] || 0) + 1;
 
-      const uid = JSON.stringify(entry.utm);
-      if (!userStart[uid]) {
-        userStart[uid] = entry.timestamp;
-      }
+      const uid = JSON.stringify(entry.utm || {});
+      userStart[uid] = userStart[uid] || entry.timestamp;
 
       const duration = new Date(entry.timestamp) - new Date(userStart[uid]);
-      if (!report.timeMetrics[uid]) {
-        report.timeMetrics[uid] = [];
-      }
+      report.timeMetrics[uid] = report.timeMetrics[uid] || [];
       report.timeMetrics[uid].push(duration);
 
-      if (!report.userJourneys[uid]) {
-        report.userJourneys[uid] = [];
-      }
+      report.userJourneys[uid] = report.userJourneys[uid] || [];
       report.userJourneys[uid].push({ event: entry.eventType, time: entry.timestamp });
     });
 
     return report;
   }
 
+  // Event bindings
   function attachClickListeners() {
     document.querySelectorAll('button, a, input[type="submit"]').forEach((el) => {
       const text = el.innerText || el.value || '';
@@ -150,43 +151,33 @@
       if (form.querySelector('input[type="email"]') && !form.dataset.tracked) {
         form.dataset.tracked = 'true';
         form.addEventListener('submit', () => {
-          const formData = new FormData(form);
           const fields = {};
-          formData.forEach((value, key) => (fields[key] = value));
-          logEvent('form_submission', {
-            formId: form.id || null,
-            fields,
-          });
+          new FormData(form).forEach((v, k) => (fields[k] = v));
+          logEvent('form_submission', { formId: form.id || null, fields });
         });
       }
     });
   }
 
   function watchForForms() {
-    const observer = new MutationObserver(() => {
-      attachFormListeners();
+    new MutationObserver(attachFormListeners).observe(document.body, {
+      childList: true,
+      subtree: true,
     });
-    observer.observe(document.body, { childList: true, subtree: true });
   }
 
+  // Initialization
   window.addEventListener('DOMContentLoaded', () => {
-    // ✅ Auto consent for testing
+    // ✅ Simulate consent for testing mode
     document.cookie = `${CONFIG.consentCookieName}=true; path=/; max-age=31536000`;
 
     const utmParams = getUTMParamsFromURL();
+    const alreadyStored = getStoredUTMData();
 
-    if (Object.keys(utmParams).length > 0) {
+    if (Object.keys(utmParams).length > 0 && !alreadyStored) {
       storeUTMParams(utmParams);
     } else {
-      // ✅ Restore from cookie if localStorage is empty
-      const cookieValue = getCookie(STORAGE_KEY);
-      if (cookieValue && !getStoredUTMData()) {
-        try {
-          localStorage.setItem(STORAGE_KEY, cookieValue);
-        } catch (e) {
-          console.warn('⚠️ Could not restore UTM from cookie:', e);
-        }
-      }
+      restoreUTMFromCookie();
     }
 
     attachClickListeners();
@@ -200,14 +191,14 @@
       window.UTMTrackerConfig.reportGeneration === 'auto'
     ) {
       console.log('📊 Auto-generating report...');
-      const report = generateReport();
-      console.log('📈 Report:', report);
+      console.log('📈 Report:', generateReport());
     }
   });
 
-  // Public API
+  // Public interface
   window.UTMTracker = {
     generateReport,
     logEvent,
   };
 })(window, document);
+</script>
