@@ -1,3 +1,8 @@
+/**
+ * UTM & User Interaction Tracker Plugin (Autonomous + LocalStorage Fallback)
+ * Tracks UTM parameters, page views, and interactions. Auto-consent enabled.
+ */
+
 (function (window, document) {
   const CONFIG = {
     cookieExpirationDays: 90,
@@ -18,7 +23,7 @@
 
   function setCookie(name, value, days) {
     const expires = new Date(Date.now() + days * 864e5).toUTCString();
-    document.cookie = `${name}=${encodeURIComponent(value)}; expires=${expires}; path=/`;
+    document.cookie = `${name}=${encodeURIComponent(value)}; expires=${expires}; path=/; SameSite=Lax`;
   }
 
   function getUTMParamsFromURL() {
@@ -47,8 +52,8 @@
   }
 
   function hasConsent() {
-    const value = getCookie(CONFIG.consentCookieName);
-    return value === null || value === 'true';
+    const cookieConsent = getCookie(CONFIG.consentCookieName);
+    return cookieConsent === 'true' || !!getStoredUTMData();
   }
 
   function logEvent(type, details = {}) {
@@ -62,8 +67,6 @@
       ...details,
     };
 
-    console.log(`📍 Event Tracked: ${type}`, event);
-
     pushToDestinations(event);
     addToReportLog(event);
   }
@@ -76,7 +79,6 @@
         body: JSON.stringify(data),
       }).catch(console.error);
     }
-
     if (CONFIG.googleSheetsWebhook) {
       fetch(CONFIG.googleSheetsWebhook, {
         method: 'POST',
@@ -166,11 +168,7 @@
     const observer = new MutationObserver(() => {
       attachFormListeners();
     });
-
-    observer.observe(document.body, {
-      childList: true,
-      subtree: true,
-    });
+    observer.observe(document.body, { childList: true, subtree: true });
   }
 
   function attachEventListeners() {
@@ -180,27 +178,14 @@
   }
 
   window.addEventListener('DOMContentLoaded', () => {
-    // ✅ Auto-consent for testing
-    if (!hasConsent()) {
-      console.warn('🔁 Auto-enabling consent for test mode');
-      setCookie(CONFIG.consentCookieName, 'true', CONFIG.cookieExpirationDays);
-    }
-
     const utmParams = getUTMParamsFromURL();
-
-    // ✅ Always store or refresh UTM if available in URL
     if (Object.keys(utmParams).length) {
-      console.log('📦 UTM Params Found in URL:', utmParams);
       storeUTMParams(utmParams);
     }
 
-    const storedUTM = getStoredUTMData();
-    if (storedUTM) {
-      logEvent('page_view');
-    } else {
-      console.warn('🚫 No UTM data found in localStorage. Skipping page_view.');
-    }
+    if (!hasConsent()) return;
 
+    logEvent('page_view');
     attachEventListeners();
 
     if (
@@ -208,8 +193,7 @@
       window.UTMTrackerConfig.reportGeneration === 'auto'
     ) {
       console.log('📊 Auto-generating report...');
-      const report = generateReport();
-      console.log('📈 Auto Report:', report);
+      console.log('📈 Auto Report:', generateReport());
     }
   });
 
