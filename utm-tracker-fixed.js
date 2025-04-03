@@ -1,17 +1,10 @@
-/**
- * UTM & User Interaction Tracker Plugin (Final Tested Version)
- * Description: Fully autonomous UTM + click/page view/form tracking.
- * Stores data in localStorage and cookies. Designed to work across pageviews.
- * Auto-consent enabled for testing. GDPR/CCPA ready for production.
- */
-
 (function (window, document) {
   const CONFIG = {
     cookieExpirationDays: 90,
-    apiEndpoint: '',
-    googleSheetsWebhook: '',
+    apiEndpoint: '', // Optional CRM endpoint
+    googleSheetsWebhook: '', // Optional Google Sheets webhook
     consentCookieName: 'tracking_consent',
-    reportGeneration: 'auto',
+    reportGeneration: 'auto', // 'manual' or 'auto'
   };
 
   const UTM_PARAMS = ['utm_source', 'utm_medium', 'utm_campaign', 'utm_term', 'utm_content'];
@@ -20,7 +13,7 @@
   function getCookie(name) {
     const value = `; ${document.cookie}`;
     const parts = value.split(`; ${name}=`);
-    return parts.length === 2 ? parts.pop().split(';').shift() : null;
+    return parts.length === 2 ? decodeURIComponent(parts.pop().split(';').shift()) : null;
   }
 
   function setCookie(name, value, days) {
@@ -30,7 +23,7 @@
 
   function getUTMParamsFromURL() {
     const params = new URLSearchParams(window.location.search);
-    let result = {};
+    const result = {};
     UTM_PARAMS.forEach((key) => {
       if (params.has(key)) {
         result[key] = params.get(key);
@@ -44,13 +37,14 @@
       ...utmData,
       firstVisit: new Date().toISOString(),
     };
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(stored));
-    setCookie(STORAGE_KEY, JSON.stringify(stored), CONFIG.cookieExpirationDays);
+    const storedJSON = JSON.stringify(stored);
+    localStorage.setItem(STORAGE_KEY, storedJSON);
+    setCookie(STORAGE_KEY, storedJSON, CONFIG.cookieExpirationDays);
   }
 
   function getStoredUTMData() {
-    const localData = localStorage.getItem(STORAGE_KEY);
-    return localData ? JSON.parse(localData) : null;
+    const data = localStorage.getItem(STORAGE_KEY);
+    return data ? JSON.parse(data) : null;
   }
 
   function hasConsent() {
@@ -82,6 +76,7 @@
         body: JSON.stringify(data),
       }).catch(console.error);
     }
+
     if (CONFIG.googleSheetsWebhook) {
       fetch(CONFIG.googleSheetsWebhook, {
         method: 'POST',
@@ -106,21 +101,30 @@
     };
 
     const userStart = {};
+
     reportLog.forEach((entry) => {
       const source = entry.utm?.utm_source || 'unknown';
       report.utmSources[source] = (report.utmSources[source] || 0) + 1;
 
-      if (!report.funnel[entry.eventType]) report.funnel[entry.eventType] = 0;
+      if (!report.funnel[entry.eventType]) {
+        report.funnel[entry.eventType] = 0;
+      }
       report.funnel[entry.eventType]++;
 
       const uid = JSON.stringify(entry.utm);
-      if (!userStart[uid]) userStart[uid] = entry.timestamp;
+      if (!userStart[uid]) {
+        userStart[uid] = entry.timestamp;
+      }
 
       const duration = new Date(entry.timestamp) - new Date(userStart[uid]);
-      if (!report.timeMetrics[uid]) report.timeMetrics[uid] = [];
+      if (!report.timeMetrics[uid]) {
+        report.timeMetrics[uid] = [];
+      }
       report.timeMetrics[uid].push(duration);
 
-      if (!report.userJourneys[uid]) report.userJourneys[uid] = [];
+      if (!report.userJourneys[uid]) {
+        report.userJourneys[uid] = [];
+      }
       report.userJourneys[uid].push({ event: entry.eventType, time: entry.timestamp });
     });
 
@@ -166,12 +170,23 @@
   }
 
   window.addEventListener('DOMContentLoaded', () => {
-    // Auto consent for testing
+    // ✅ Auto consent for testing
     document.cookie = `${CONFIG.consentCookieName}=true; path=/; max-age=31536000`;
 
     const utmParams = getUTMParamsFromURL();
+
     if (Object.keys(utmParams).length > 0) {
       storeUTMParams(utmParams);
+    } else {
+      // ✅ Restore from cookie if localStorage is empty
+      const cookieValue = getCookie(STORAGE_KEY);
+      if (cookieValue && !getStoredUTMData()) {
+        try {
+          localStorage.setItem(STORAGE_KEY, cookieValue);
+        } catch (e) {
+          console.warn('⚠️ Could not restore UTM from cookie:', e);
+        }
+      }
     }
 
     attachClickListeners();
@@ -190,6 +205,7 @@
     }
   });
 
+  // Public API
   window.UTMTracker = {
     generateReport,
     logEvent,
