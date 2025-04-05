@@ -1,108 +1,109 @@
 /**
  * UTM Tracker: Final Version
- * - Auto Consent (for Testing)
- * - Tracks UTM + Referrer
- * - Persists via localStorage + Cookie
- * - Tracks Page Views, Clicks, Forms
- * - Generates Session Funnel Reports
+ * - Tracks UTM from URL or Referrer
+ * - Stores in localStorage + cookie
+ * - Tracks page views, buttons, forms
+ * - Auto-reporting + developer debug logs
  */
 
 (function (window, document) {
   const CONFIG = {
     cookieExpirationDays: 90,
-    apiEndpoint: '',
-    googleSheetsWebhook: '',
+    apiEndpoint: '',                // Optional: POST destination
+    googleSheetsWebhook: '',        // Optional: Sheets webhook
     consentCookieName: 'tracking_consent',
     reportGeneration: 'auto'
   };
 
-  const UTM_PARAMS = ['utm_source', 'utm_medium', 'utm_campaign', 'utm_term', 'utm_content'];
+  const UTM_KEYS = ['utm_source', 'utm_medium', 'utm_campaign', 'utm_term', 'utm_content'];
   const STORAGE_KEY = 'utm_tracking_data';
   const reportLog = [];
 
-  // ------------------- UTILITY -------------------
+  // ------------------ Cookie Helpers ------------------
 
   function getCookie(name) {
-    const value = `; ${document.cookie}`;
-    const parts = value.split(`; ${name}=`);
-    return parts.length === 2 ? decodeURIComponent(parts.pop().split(';').shift()) : null;
+    const cookies = `; ${document.cookie}`.split(`; ${name}=`);
+    return cookies.length === 2 ? decodeURIComponent(cookies.pop().split(';')[0]) : null;
   }
 
   function setCookie(name, value, days) {
     const expires = new Date(Date.now() + days * 864e5).toUTCString();
-    document.cookie = `${name}=${encodeURIComponent(value)}; expires=${expires}; path=/`;
+    document.cookie = `${name}=${encodeURIComponent(value)}; path=/; expires=${expires}`;
   }
+
+  // ------------------ UTM Extraction ------------------
 
   function getUTMParamsFromURL() {
     const params = new URLSearchParams(window.location.search);
-    const result = {};
-    UTM_PARAMS.forEach(key => {
-      if (params.has(key)) result[key] = params.get(key);
+    const utm = {};
+    UTM_KEYS.forEach(key => {
+      if (params.has(key)) utm[key] = params.get(key);
     });
-    return result;
+    return utm;
   }
 
   function getReferrerSource() {
+    const ref = document.referrer;
+    if (!ref || ref.includes(location.hostname)) return null;
     try {
-      const ref = document.referrer;
-      if (!ref || ref.includes(location.hostname)) return null;
-      const hostname = new URL(ref).hostname;
-      if (hostname.includes('google.')) return 'google';
-      if (hostname.includes('bing.')) return 'bing';
-      if (hostname.includes('facebook.')) return 'facebook';
-      if (hostname.includes('instagram.')) return 'instagram';
-      if (hostname.includes('linkedin.')) return 'linkedin';
-      if (hostname.includes('t.co') || hostname.includes('twitter.')) return 'twitter';
-      return hostname;
-    } catch (e) {
+      const host = new URL(ref).hostname;
+      if (host.includes('google')) return 'google';
+      if (host.includes('bing')) return 'bing';
+      if (host.includes('facebook')) return 'facebook';
+      if (host.includes('instagram')) return 'instagram';
+      if (host.includes('linkedin')) return 'linkedin';
+      if (host.includes('twitter') || host.includes('t.co')) return 'twitter';
+      return host;
+    } catch {
       return null;
     }
   }
 
-  function storeUTMParams(data) {
-    const fullData = { ...data, firstVisit: new Date().toISOString() };
-    const json = JSON.stringify(fullData);
+  function storeUTM(utmData) {
+    const data = {
+      ...utmData,
+      firstVisit: new Date().toISOString()
+    };
+    const json = JSON.stringify(data);
     localStorage.setItem(STORAGE_KEY, json);
     setCookie(STORAGE_KEY, json, CONFIG.cookieExpirationDays);
-    console.log('📦 UTM Stored:', fullData);
+    console.log('📦 UTM data stored:', data);
   }
 
-  function getStoredUTMData() {
-    const fromLocal = localStorage.getItem(STORAGE_KEY);
+  function getStoredUTM() {
     try {
-      return fromLocal ? JSON.parse(fromLocal) : null;
+      const data = localStorage.getItem(STORAGE_KEY);
+      return data ? JSON.parse(data) : null;
     } catch (e) {
-      console.warn('⚠️ Failed to parse UTM from localStorage:', e);
+      console.warn('⚠️ Error parsing UTM data from localStorage', e);
       return null;
     }
   }
 
-  function restoreUTMFromCookie() {
-    const cookieVal = getCookie(STORAGE_KEY);
-    if (cookieVal && !getStoredUTMData()) {
+  function restoreFromCookieIfNeeded() {
+    const cookieData = getCookie(STORAGE_KEY);
+    if (cookieData && !getStoredUTM()) {
       try {
-        const parsed = JSON.parse(cookieVal);
-        if (parsed && typeof parsed === 'object') {
-          localStorage.setItem(STORAGE_KEY, JSON.stringify(parsed));
-          console.log('♻️ Restored UTM from cookie:', parsed);
-        }
+        localStorage.setItem(STORAGE_KEY, cookieData);
+        console.log('♻️ UTM restored from cookie:', JSON.parse(cookieData));
       } catch (e) {
-        console.warn('⚠️ Failed to parse UTM from cookie:', e);
+        console.warn('⚠️ Error restoring UTM from cookie:', e);
       }
     }
   }
 
+  // ------------------ Consent Check ------------------
+
   function hasConsent() {
-    const value = getCookie(CONFIG.consentCookieName);
-    return value === null || value === 'true';
+    return getCookie(CONFIG.consentCookieName) !== 'false';
   }
 
-  // ------------------- TRACKING -------------------
+  // ------------------ Event Tracking ------------------
 
   function logEvent(type, details = {}) {
     if (!hasConsent()) return;
 
-    const utm = getStoredUTMData();
+    const utm = getStoredUTM();
     const event = {
       eventType: type,
       timestamp: new Date().toISOString(),
@@ -112,8 +113,8 @@
     };
 
     reportLog.push(event);
+    console.log(`📌 Event logged: ${type}`, event);
     pushToDestinations(event);
-    console.log(`📌 Event Logged: ${type}`, event);
   }
 
   function pushToDestinations(data) {
@@ -133,6 +134,8 @@
     }
   }
 
+  // ------------------ Reporting ------------------
+
   function generateReport() {
     const report = {
       totalEvents: reportLog.length,
@@ -145,33 +148,35 @@
     const userStart = {};
 
     reportLog.forEach(entry => {
-      const src = entry.utm?.utm_source || 'unknown';
-      report.utmSources[src] = (report.utmSources[src] || 0) + 1;
-      report.funnel[entry.eventType] = (report.funnel[entry.eventType] || 0) + 1;
-
+      const source = entry.utm?.utm_source || 'unknown';
+      const type = entry.eventType;
       const uid = JSON.stringify(entry.utm || {});
-      userStart[uid] = userStart[uid] || entry.timestamp;
 
+      report.utmSources[source] = (report.utmSources[source] || 0) + 1;
+      report.funnel[type] = (report.funnel[type] || 0) + 1;
+
+      if (!userStart[uid]) userStart[uid] = entry.timestamp;
       const duration = new Date(entry.timestamp) - new Date(userStart[uid]);
+
       report.timeMetrics[uid] = report.timeMetrics[uid] || [];
       report.timeMetrics[uid].push(duration);
 
       report.userJourneys[uid] = report.userJourneys[uid] || [];
-      report.userJourneys[uid].push({ event: entry.eventType, time: entry.timestamp });
+      report.userJourneys[uid].push({ event: type, time: entry.timestamp });
     });
 
     return report;
   }
 
-  // ------------------- DOM EVENTS -------------------
+  // ------------------ DOM Interaction ------------------
 
   function attachClickListeners() {
     document.querySelectorAll('button, a, input[type="submit"]').forEach(el => {
-      const text = el.innerText || el.value || '';
-      if (/sign\s?up|submit|buy|book|download|get/i.test(text)) {
+      const label = el.innerText || el.value || '';
+      if (/sign\s?up|submit|buy|book|download|get/i.test(label)) {
         el.addEventListener('click', () => {
           logEvent('button_click', {
-            elementText: text,
+            elementText: label,
             elementId: el.id || null
           });
         });
@@ -181,67 +186,73 @@
 
   function attachFormListeners() {
     document.querySelectorAll('form').forEach(form => {
-      if (form.querySelector('input[type="email"]') && !form.dataset.tracked) {
+      if (!form.dataset.tracked && form.querySelector('input[type="email"]')) {
         form.dataset.tracked = 'true';
         form.addEventListener('submit', () => {
           const fields = {};
-          new FormData(form).forEach((v, k) => (fields[k] = v));
-          logEvent('form_submission', { formId: form.id || null, fields });
+          new FormData(form).forEach((val, key) => (fields[key] = val));
+          logEvent('form_submission', {
+            formId: form.id || null,
+            fields
+          });
         });
       }
     });
   }
 
-  function watchForForms() {
+  function watchForDynamicForms() {
     new MutationObserver(attachFormListeners).observe(document.body, {
       childList: true,
       subtree: true
     });
   }
 
-  // ------------------- INIT -------------------
+  // ------------------ Initialization ------------------
 
   window.addEventListener('DOMContentLoaded', () => {
+    console.log('🔥 UTM Tracker initialized');
+
+    // ✅ Simulate consent
     document.cookie = `${CONFIG.consentCookieName}=true; path=/; max-age=31536000`;
 
-    const utmParams = getUTMParamsFromURL();
-    const alreadyStored = getStoredUTMData();
+    const utm = getUTMParamsFromURL();
+    const existing = getStoredUTM();
 
-    if (Object.keys(utmParams).length > 0 && !alreadyStored) {
-      storeUTMParams({ ...utmParams, firstVisit: new Date().toISOString() });
-      console.log('✅ UTM captured from URL:', utmParams);
-    } else if (!alreadyStored) {
-      const refSource = getReferrerSource();
-      if (refSource) {
-        const fallbackUTM = {
-          utm_source: refSource,
+    console.log('🔍 URL Params:', utm);
+    console.log('📦 Existing localStorage UTM:', existing);
+
+    if (Object.keys(utm).length > 0 && !existing) {
+      storeUTM(utm);
+    } else if (!existing) {
+      const ref = getReferrerSource();
+      if (ref) {
+        storeUTM({
+          utm_source: ref,
           utm_medium: 'referral',
-          fallback: true,
-          firstVisit: new Date().toISOString()
-        };
-        storeUTMParams(fallbackUTM);
-        console.log('🔁 Stored fallback UTM from referrer:', refSource);
+          fallback: true
+        });
+        console.log('🔁 Fallback referrer UTM:', ref);
       } else {
-        restoreUTMFromCookie();
+        restoreFromCookieIfNeeded();
       }
     }
 
-    // ✅ DEFER logEvent AFTER UTM data is surely present
+    // ✅ Defer event log after save
     setTimeout(() => {
       logEvent('page_view');
       if (CONFIG.reportGeneration === 'auto') {
-        console.log('📊 Auto-generating report...');
-        console.log('📈 Report:', generateReport());
+        console.log('📊 Report:', generateReport());
       }
     }, 100);
 
     attachClickListeners();
     attachFormListeners();
-    watchForForms();
+    watchForDynamicForms();
   });
 
+  // Public API
   window.UTMTracker = {
-    generateReport,
-    logEvent
+    logEvent,
+    generateReport
   };
 })(window, document);
