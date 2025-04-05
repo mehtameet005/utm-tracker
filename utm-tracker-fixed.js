@@ -1,18 +1,18 @@
-<!-- UTM Tracker Config + Script (Auto Consent & Persistence Fixes) -->
+<!-- UTM Tracker: Final Version with Auto Consent & Persistence Fixes -->
 <script>
 (function (window, document) {
   const CONFIG = {
     cookieExpirationDays: 90,
-    apiEndpoint: '', // Optional CRM POST endpoint
-    googleSheetsWebhook: '', // Optional webhook for Google Sheets
+    apiEndpoint: '', // Optional CRM endpoint
+    googleSheetsWebhook: '', // Optional Google Sheets webhook
     consentCookieName: 'tracking_consent',
-    reportGeneration: 'auto', // 'manual' or 'auto'
+    reportGeneration: 'auto', // auto or manual
   };
 
   const UTM_PARAMS = ['utm_source', 'utm_medium', 'utm_campaign', 'utm_term', 'utm_content'];
   const STORAGE_KEY = 'utm_tracking_data';
 
-  // Cookie utilities
+  // ---------------- UTILITY FUNCTIONS ----------------
   function getCookie(name) {
     const value = `; ${document.cookie}`;
     const parts = value.split(`; ${name}=`);
@@ -24,7 +24,6 @@
     document.cookie = `${name}=${encodeURIComponent(value)}; expires=${expires}; path=/`;
   }
 
-  // UTM functions
   function getUTMParamsFromURL() {
     const params = new URLSearchParams(window.location.search);
     const result = {};
@@ -35,10 +34,7 @@
   }
 
   function storeUTMParams(utmData) {
-    const data = {
-      ...utmData,
-      firstVisit: new Date().toISOString(),
-    };
+    const data = { ...utmData, firstVisit: new Date().toISOString() };
     const json = JSON.stringify(data);
     localStorage.setItem(STORAGE_KEY, json);
     setCookie(STORAGE_KEY, json, CONFIG.cookieExpirationDays);
@@ -54,8 +50,9 @@
     if (fromCookie && !getStoredUTMData()) {
       try {
         localStorage.setItem(STORAGE_KEY, fromCookie);
+        console.log('♻️ UTM restored from cookie');
       } catch (e) {
-        console.warn('⚠️ UTM cookie restore failed:', e);
+        console.warn('⚠️ Failed to restore UTM from cookie:', e);
       }
     }
   }
@@ -64,6 +61,9 @@
     const value = getCookie(CONFIG.consentCookieName);
     return value === null || value === 'true';
   }
+
+  // ---------------- EVENT TRACKING ----------------
+  const reportLog = [];
 
   function logEvent(type, details = {}) {
     if (!hasConsent()) return;
@@ -98,9 +98,6 @@
     }
   }
 
-  // Reporting system
-  const reportLog = [];
-
   function generateReport() {
     const report = {
       totalEvents: reportLog.length,
@@ -115,7 +112,8 @@
       const source = entry.utm?.utm_source || 'unknown';
       report.utmSources[source] = (report.utmSources[source] || 0) + 1;
 
-      report.funnel[entry.eventType] = (report.funnel[entry.eventType] || 0) + 1;
+      const type = entry.eventType;
+      report.funnel[type] = (report.funnel[type] || 0) + 1;
 
       const uid = JSON.stringify(entry.utm || {});
       userStart[uid] = userStart[uid] || entry.timestamp;
@@ -125,13 +123,13 @@
       report.timeMetrics[uid].push(duration);
 
       report.userJourneys[uid] = report.userJourneys[uid] || [];
-      report.userJourneys[uid].push({ event: entry.eventType, time: entry.timestamp });
+      report.userJourneys[uid].push({ event: type, time: entry.timestamp });
     });
 
     return report;
   }
 
-  // Event bindings
+  // ---------------- DOM INTERACTION ----------------
   function attachClickListeners() {
     document.querySelectorAll('button, a, input[type="submit"]').forEach((el) => {
       const text = el.innerText || el.value || '';
@@ -166,9 +164,9 @@
     });
   }
 
-  // Initialization
+  // ---------------- INITIALIZATION ----------------
   window.addEventListener('DOMContentLoaded', () => {
-    // ✅ Simulate consent for testing mode
+    // ✅ Simulate user consent (for testing)
     document.cookie = `${CONFIG.consentCookieName}=true; path=/; max-age=31536000`;
 
     const utmParams = getUTMParamsFromURL();
@@ -176,15 +174,16 @@
 
     if (Object.keys(utmParams).length > 0 && !alreadyStored) {
       storeUTMParams(utmParams);
+      console.log("✅ UTM params captured and stored:", utmParams);
     } else {
       restoreUTMFromCookie();
     }
 
+    logEvent('page_view');
+
     attachClickListeners();
     attachFormListeners();
     watchForForms();
-
-    logEvent('page_view');
 
     if (
       typeof window.UTMTrackerConfig === 'object' &&
@@ -195,7 +194,7 @@
     }
   });
 
-  // Public interface
+  // Public API
   window.UTMTracker = {
     generateReport,
     logEvent,
