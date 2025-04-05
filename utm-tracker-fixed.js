@@ -64,7 +64,7 @@
     const json = JSON.stringify(fullData);
     localStorage.setItem(STORAGE_KEY, json);
     setCookie(STORAGE_KEY, json, CONFIG.cookieExpirationDays);
-    console.log('📦 UTM Stored in localStorage & Cookie:', fullData);
+    console.log('📦 UTM Stored:', fullData);
   }
 
   function getStoredUTMData() {
@@ -72,7 +72,7 @@
     try {
       return fromLocal ? JSON.parse(fromLocal) : null;
     } catch (e) {
-      console.warn('⚠️ UTM parse from localStorage failed:', e);
+      console.warn('⚠️ Failed to parse UTM from localStorage:', e);
       return null;
     }
   }
@@ -87,7 +87,7 @@
           console.log('♻️ Restored UTM from cookie:', parsed);
         }
       } catch (e) {
-        console.warn('⚠️ UTM cookie parse failed:', e);
+        console.warn('⚠️ Failed to parse UTM from cookie:', e);
       }
     }
   }
@@ -199,40 +199,45 @@
     });
   }
 
-  // ------------------- INITIALIZATION -------------------
+  // ------------------- INIT -------------------
 
   window.addEventListener('DOMContentLoaded', () => {
-    // Simulate consent for testing
     document.cookie = `${CONFIG.consentCookieName}=true; path=/; max-age=31536000`;
 
     const utmParams = getUTMParamsFromURL();
     const alreadyStored = getStoredUTMData();
 
     if (Object.keys(utmParams).length > 0 && !alreadyStored) {
-      storeUTMParams(utmParams);
+      storeUTMParams({ ...utmParams, firstVisit: new Date().toISOString() });
+      console.log('✅ UTM captured from URL:', utmParams);
     } else if (!alreadyStored) {
       const refSource = getReferrerSource();
       if (refSource) {
-        storeUTMParams({
+        const fallbackUTM = {
           utm_source: refSource,
           utm_medium: 'referral',
-          fallback: true
-        });
-        console.log('🔁 Fallback UTM from referrer:', refSource);
+          fallback: true,
+          firstVisit: new Date().toISOString()
+        };
+        storeUTMParams(fallbackUTM);
+        console.log('🔁 Stored fallback UTM from referrer:', refSource);
       } else {
         restoreUTMFromCookie();
       }
     }
 
-    logEvent('page_view');
+    // ✅ DEFER logEvent AFTER UTM data is surely present
+    setTimeout(() => {
+      logEvent('page_view');
+      if (CONFIG.reportGeneration === 'auto') {
+        console.log('📊 Auto-generating report...');
+        console.log('📈 Report:', generateReport());
+      }
+    }, 100);
+
     attachClickListeners();
     attachFormListeners();
     watchForForms();
-
-    if (CONFIG.reportGeneration === 'auto') {
-      console.log('📊 Generating report...');
-      console.log('📈 Report:', generateReport());
-    }
   });
 
   window.UTMTracker = {
