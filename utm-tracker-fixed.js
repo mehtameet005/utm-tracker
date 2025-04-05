@@ -1,4 +1,4 @@
-// UTM Tracker: Final Stable Version
+// UTM Tracker: Final Version v3
 (function (window, document) {
   const CONFIG = {
     cookieExpirationDays: 90,
@@ -10,6 +10,7 @@
   const STORAGE_KEY = 'utm_tracking_data';
   const reportLog = [];
 
+  // Utility: Cookie management
   function getCookie(name) {
     const cookies = `; ${document.cookie}`;
     const parts = cookies.split(`; ${name}=`);
@@ -21,6 +22,7 @@
     document.cookie = `${name}=${encodeURIComponent(value)}; path=/; expires=${expires}`;
   }
 
+  // Utility: UTM collection
   function getUTMParamsFromURL() {
     const params = new URLSearchParams(window.location.search);
     const result = {};
@@ -64,6 +66,7 @@
     }
   }
 
+  // Logging
   function logEvent(type, details = {}) {
     const utm = getStoredUTMData();
     const event = {
@@ -71,36 +74,73 @@
       timestamp: new Date().toISOString(),
       utm,
       pageURL: window.location.href,
+      pagePath: window.location.pathname,
+      pageTitle: document.title,
       ...details
     };
     reportLog.push(event);
     console.log(`📌 Event logged: ${type}`, event);
   }
 
+  // Reporting
   function generateReport() {
-    return {
+    const report = {
       totalEvents: reportLog.length,
-      utmStored: getStoredUTMData()
+      funnel: {},
+      utmSources: {},
+      clickSummary: {},
+      pageViewTitles: {},
+      userJourneys: []
     };
+
+    reportLog.forEach(entry => {
+      const type = entry.eventType;
+      const pageTitle = entry.pageTitle || entry.pagePath;
+      const src = entry.utm?.utm_source || 'unknown';
+
+      report.funnel[type] = (report.funnel[type] || 0) + 1;
+      report.utmSources[src] = (report.utmSources[src] || 0) + 1;
+      if (type === 'page_view') {
+        report.pageViewTitles[pageTitle] = (report.pageViewTitles[pageTitle] || 0) + 1;
+      }
+      if (type === 'click') {
+        const key = entry.label || entry.elementText || 'unknown';
+        report.clickSummary[key] = (report.clickSummary[key] || 0) + 1;
+      }
+      report.userJourneys.push({
+        type,
+        page: pageTitle,
+        time: entry.timestamp
+      });
+    });
+
+    return report;
   }
 
+  // Dynamic Event Handling
+  function attachClickListeners() {
+    document.body.addEventListener('click', function (e) {
+      const el = e.target.closest('button, a, input[type="submit"], [role="button"]');
+      if (!el) return;
+      const label = el.innerText || el.value || el.getAttribute('aria-label') || 'Unnamed';
+      logEvent('click', {
+        elementTag: el.tagName,
+        elementText: label,
+        elementId: el.id || null,
+        elementClass: el.className || null
+      });
+    }, true);
+  }
+
+  // Bootstrapping
   window.addEventListener('DOMContentLoaded', () => {
     console.log('🔥 DOMContentLoaded in UTM Tracker');
-
-    // Force Consent
     document.cookie = `${CONFIG.consentCookieName}=true; path=/; max-age=31536000`;
 
-    let utm = {};
-    let existing = null;
-
-    try {
-      utm = getUTMParamsFromURL();
-      existing = getStoredUTMData();
-      console.log('🔍 URL UTM Params:', utm);
-      console.log('📦 Existing stored UTM:', existing);
-    } catch (e) {
-      console.warn('⚠️ Error reading URL/localStorage:', e);
-    }
+    const utm = getUTMParamsFromURL();
+    const existing = getStoredUTMData();
+    console.log('🔍 URL UTM Params:', utm);
+    console.log('📦 Existing stored UTM:', existing);
 
     if (Object.keys(utm).length > 0 && !existing) {
       console.log('✅ UTM from URL being stored now');
@@ -109,11 +149,18 @@
       restoreUTMFromCookie();
     }
 
+    // Track entry page view
     logEvent('page_view');
 
+    // Track browser history navigation
+    window.addEventListener('popstate', () => logEvent('page_view'));
+
+    // Auto report
     if (CONFIG.reportGeneration === 'auto') {
       console.log('📊 UTM Report:', generateReport());
     }
+
+    attachClickListeners();
   });
 
   window.UTMTracker = {
