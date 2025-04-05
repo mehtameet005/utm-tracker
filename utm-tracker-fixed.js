@@ -1,4 +1,4 @@
-// UTM Tracker: v4 - With Full Page + Button Click Tracking
+// UTM Tracker: v4 – Full Tracking (Page + Click + Report)
 (function (window, document) {
   const CONFIG = {
     cookieExpirationDays: 90,
@@ -10,10 +10,10 @@
   const STORAGE_KEY = 'utm_tracking_data';
   const reportLog = [];
 
-  // ------------------- UTILITY -------------------
+  // ----------- Utility ----------
   function getCookie(name) {
-    const cookies = `; ${document.cookie}`;
-    const parts = cookies.split(`; ${name}=`);
+    const value = `; ${document.cookie}`;
+    const parts = value.split(`; ${name}=`);
     return parts.length === 2 ? decodeURIComponent(parts.pop().split(';')[0]) : null;
   }
 
@@ -33,10 +33,14 @@
 
   function storeUTMParams(data) {
     const fullData = { ...data, firstVisit: new Date().toISOString() };
-    const json = JSON.stringify(fullData);
-    localStorage.setItem(STORAGE_KEY, json);
-    setCookie(STORAGE_KEY, json, CONFIG.cookieExpirationDays);
-    console.log('📦 Stored UTM to localStorage & cookie:', fullData);
+    try {
+      const json = JSON.stringify(fullData);
+      localStorage.setItem(STORAGE_KEY, json);
+      setCookie(STORAGE_KEY, json, CONFIG.cookieExpirationDays);
+      console.log('📦 Stored UTM:', fullData);
+    } catch (err) {
+      console.error('❌ Failed to store UTM data:', err);
+    }
   }
 
   function getStoredUTMData() {
@@ -61,15 +65,14 @@
     }
   }
 
-  // ------------------- TRACKING -------------------
   function logEvent(type, details = {}) {
     const utm = getStoredUTMData();
     const event = {
       eventType: type,
       timestamp: new Date().toISOString(),
-      utm,
-      pageTitle: document.title,
       pageURL: window.location.href,
+      pageName: document.title || window.location.pathname,
+      utm,
       ...details
     };
     reportLog.push(event);
@@ -77,71 +80,54 @@
   }
 
   function generateReport() {
-    const funnel = {};
-    const clickSummary = {};
-    const pageViewTitles = {};
-    const userJourneys = {};
-
-    reportLog.forEach((e) => {
-      funnel[e.eventType] = (funnel[e.eventType] || 0) + 1;
-      if (e.eventType === 'button_click') {
-        clickSummary[e.elementText] = (clickSummary[e.elementText] || 0) + 1;
-      }
-      if (e.eventType === 'page_view') {
-        pageViewTitles[e.pageTitle] = (pageViewTitles[e.pageTitle] || 0) + 1;
-      }
-
-      const uid = JSON.stringify(e.utm || {});
-      userJourneys[uid] = userJourneys[uid] || [];
-      userJourneys[uid].push({ type: e.eventType, time: e.timestamp, page: e.pageTitle });
-    });
-
     return {
       totalEvents: reportLog.length,
       utmStored: getStoredUTMData(),
-      funnel,
-      clickSummary,
-      pageViewTitles,
-      userJourneys
+      funnel: reportLog.reduce((acc, e) => {
+        acc[e.eventType] = (acc[e.eventType] || 0) + 1;
+        return acc;
+      }, {}),
+      clicks: reportLog.filter(e => e.eventType.includes("click")),
+      pagesVisited: reportLog.filter(e => e.eventType === "page_view").map(e => e.pageName)
     };
   }
 
-  // ------------------- INTERACTIONS -------------------
-  function attachClickTracking() {
-    document.body.addEventListener('click', (e) => {
-      const target = e.target.closest('a, button, input[type="submit"]');
-      if (!target) return;
-
-      const text = target.innerText || target.value || target.getAttribute('aria-label') || '[no-label]';
-      logEvent('button_click', {
-        elementText: text,
-        elementId: target.id || null,
-        tag: target.tagName
-      });
+  // -------- Click + Form Tracking --------
+  function attachClickListeners() {
+    document.querySelectorAll('a, button, input[type="submit"]').forEach(el => {
+      const label = el.innerText || el.value || el.getAttribute('aria-label') || '';
+      if (!el.dataset.tracked) {
+        el.dataset.tracked = 'true';
+        el.addEventListener('click', () => {
+          logEvent('element_click', {
+            elementText: label,
+            elementType: el.tagName.toLowerCase()
+          });
+        });
+      }
     });
   }
 
-  function trackPageNavigation() {
-    let lastURL = location.href;
-    new MutationObserver(() => {
-      if (location.href !== lastURL) {
-        lastURL = location.href;
-        logEvent('page_view');
-      }
-    }).observe(document.body, { childList: true, subtree: true });
+  // -------- SPA Navigation Tracking --------
+  function patchHistoryEvents() {
+    const originalPush = history.pushState;
+    history.pushState = function (...args) {
+      originalPush.apply(this, args);
+      window.dispatchEvent(new Event('pushstate'));
+      window.dispatchEvent(new Event('locationchange'));
+    };
+    window.addEventListener('popstate', () => window.dispatchEvent(new Event('locationchange')));
   }
 
-  // ------------------- INIT -------------------
+  // -------- Initialization --------
   window.addEventListener('DOMContentLoaded', () => {
-    console.log('🔥 DOMContentLoaded in UTM Tracker');
-
-    // Force Consent
+    console.log('🔥 DOMContentLoaded inside tracker');
     document.cookie = `${CONFIG.consentCookieName}=true; path=/; max-age=31536000`;
 
     const utm = getUTMParamsFromURL();
     const existing = getStoredUTMData();
     console.log('🔍 URL Params:', utm);
-    console.log('📦 Existing stored UTM:', existing);
+    console.log('📦 Existing localStorage UTM:', existing);
 
     if (Object.keys(utm).length > 0 && !existing) {
       console.log('✅ UTM from URL being stored now');
@@ -150,16 +136,24 @@
       restoreUTMFromCookie();
     }
 
+    // 🔁 Always log page_view on each load
     logEvent('page_view');
 
     if (CONFIG.reportGeneration === 'auto') {
-      console.log('📊 UTM Report:', generateReport());
+      console.log('📊 Report:', generateReport());
     }
 
-    attachClickTracking();
-    trackPageNavigation();
+    attachClickListeners();
+    patchHistoryEvents();
+
+    // Track future navigations
+    window.addEventListener("locationchange", () => {
+      logEvent('page_view');
+      attachClickListeners(); // re-attach in case DOM changed
+    });
   });
 
+  // Export API
   window.UTMTracker = {
     logEvent,
     generateReport
