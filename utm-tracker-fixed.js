@@ -1,4 +1,4 @@
-// UTM Tracker: Final Version with Debug & Persistence Fixes
+// UTM Tracker: Final Stable Version
 (function (window, document) {
   const CONFIG = {
     cookieExpirationDays: 90,
@@ -36,7 +36,7 @@
       const json = JSON.stringify(fullData);
       localStorage.setItem(STORAGE_KEY, json);
       setCookie(STORAGE_KEY, json, CONFIG.cookieExpirationDays);
-      console.log('📦 UTM data stored to localStorage & cookie:', fullData);
+      console.log('📦 Stored UTM to localStorage & cookie:', fullData);
     } catch (err) {
       console.error('❌ Failed to store UTM data:', err);
     }
@@ -46,8 +46,7 @@
     try {
       const fromLocal = localStorage.getItem(STORAGE_KEY);
       return fromLocal ? JSON.parse(fromLocal) : null;
-    } catch (e) {
-      console.warn('⚠️ Failed to parse stored UTM:', e);
+    } catch {
       return null;
     }
   }
@@ -56,10 +55,11 @@
     const cookieVal = getCookie(STORAGE_KEY);
     if (cookieVal && !getStoredUTMData()) {
       try {
-        localStorage.setItem(STORAGE_KEY, cookieVal);
-        console.log('♻️ Restored UTM from cookie:', JSON.parse(cookieVal));
+        const parsed = JSON.parse(cookieVal);
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(parsed));
+        console.log('♻️ Restored UTM from cookie:', parsed);
       } catch (e) {
-        console.warn('⚠️ Cookie restore failed:', e);
+        console.warn('⚠️ Failed to restore UTM from cookie:', e);
       }
     }
   }
@@ -84,18 +84,23 @@
     };
   }
 
-  // MAIN
   window.addEventListener('DOMContentLoaded', () => {
-    console.log('🚀 DOMContentLoaded inside UTM Tracker');
+    console.log('🔥 DOMContentLoaded in UTM Tracker');
 
-    // Simulate consent
+    // Force Consent
     document.cookie = `${CONFIG.consentCookieName}=true; path=/; max-age=31536000`;
 
-    const utm = getUTMParamsFromURL();
-    const existing = getStoredUTMData();
+    let utm = {};
+    let existing = null;
 
-    console.log('🔍 URL UTM Params:', utm);
-    console.log('📦 Existing stored UTM:', existing);
+    try {
+      utm = getUTMParamsFromURL();
+      existing = getStoredUTMData();
+      console.log('🔍 URL UTM Params:', utm);
+      console.log('📦 Existing stored UTM:', existing);
+    } catch (e) {
+      console.warn('⚠️ Error reading URL/localStorage:', e);
+    }
 
     if (Object.keys(utm).length > 0 && !existing) {
       console.log('✅ UTM from URL being stored now');
@@ -103,10 +108,6 @@
     } else if (!existing) {
       restoreUTMFromCookie();
     }
-
-    // Confirm storage
-    const confirmedUTM = getStoredUTMData();
-    console.log('📦 Confirmed stored UTM:', confirmedUTM);
 
     logEvent('page_view');
 
