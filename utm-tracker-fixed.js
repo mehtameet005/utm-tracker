@@ -222,6 +222,7 @@
     console.log('📦 Existing localStorage UTM:', existing);
 
     if (Object.keys(utm).length > 0 && !existing) {
+      console.log('✅ UTM from URL being stored now');
       storeUTM(utm);
     } else if (!existing) {
       const ref = getReferrerSource();
