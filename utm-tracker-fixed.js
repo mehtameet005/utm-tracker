@@ -1,16 +1,16 @@
 /**
- * UTM Tracker: Final Version (JS v1 Updated)
+ * UTM Tracker: Final Version (js v1.1)
  * - Tracks UTM from URL or Referrer
  * - Stores in localStorage + cookie
  * - Tracks page views, buttons, forms
- * - Auto-reporting + developer debug logs
+ * - Auto-reporting + debug logs
  */
 
 (function (window, document) {
   const CONFIG = {
     cookieExpirationDays: 90,
-    apiEndpoint: '',                // Optional: POST destination
-    googleSheetsWebhook: '',        // Optional: Sheets webhook
+    apiEndpoint: '',
+    googleSheetsWebhook: '',
     consentCookieName: 'tracking_consent',
     reportGeneration: 'auto'
   };
@@ -19,8 +19,7 @@
   const STORAGE_KEY = 'utm_tracking_data';
   const reportLog = [];
 
-  // ------------------ Cookie Helpers ------------------
-
+  // -------------- Cookie Helpers --------------
   function getCookie(name) {
     const cookies = `; ${document.cookie}`.split(`; ${name}=`);
     return cookies.length === 2 ? decodeURIComponent(cookies.pop().split(';')[0]) : null;
@@ -31,8 +30,7 @@
     document.cookie = `${name}=${encodeURIComponent(value)}; path=/; expires=${expires}`;
   }
 
-  // ------------------ UTM Extraction ------------------
-
+  // -------------- UTM Helpers --------------
   function getUTMParamsFromURL() {
     const params = new URLSearchParams(window.location.search);
     const utm = {};
@@ -75,7 +73,7 @@
       const data = localStorage.getItem(STORAGE_KEY);
       return data ? JSON.parse(data) : null;
     } catch (e) {
-      console.warn('⚠️ Error parsing UTM data from localStorage', e);
+      console.warn('⚠️ Error parsing UTM from localStorage:', e);
       return null;
     }
   }
@@ -84,22 +82,20 @@
     const cookieData = getCookie(STORAGE_KEY);
     if (cookieData && !getStoredUTM()) {
       try {
-        localStorage.setItem(STORAGE_KEY, cookieData);
-        console.log('♻️ UTM restored from cookie:', JSON.parse(cookieData));
+        const parsed = JSON.parse(cookieData);
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(parsed));
+        console.log('♻️ Restored UTM from cookie:', parsed);
       } catch (e) {
-        console.warn('⚠️ Error restoring UTM from cookie:', e);
+        console.warn('⚠️ Error restoring from cookie:', e);
       }
     }
   }
-
-  // ------------------ Consent Check ------------------
 
   function hasConsent() {
     return getCookie(CONFIG.consentCookieName) !== 'false';
   }
 
-  // ------------------ Event Tracking ------------------
-
+  // -------------- Event Logging --------------
   function logEvent(type, details = {}) {
     if (!hasConsent()) return;
 
@@ -134,8 +130,6 @@
     }
   }
 
-  // ------------------ Reporting ------------------
-
   function generateReport() {
     const report = {
       totalEvents: reportLog.length,
@@ -168,8 +162,7 @@
     return report;
   }
 
-  // ------------------ DOM Interaction ------------------
-
+  // -------------- DOM Interaction --------------
   function attachClickListeners() {
     document.querySelectorAll('button, a, input[type="submit"]').forEach(el => {
       const label = el.innerText || el.value || '';
@@ -207,12 +200,10 @@
     });
   }
 
-  // ------------------ Initialization ------------------
-
+  // -------------- Init --------------
   window.addEventListener('DOMContentLoaded', () => {
     console.log('🔥 UTM Tracker initialized');
 
-    // ✅ Simulate consent
     document.cookie = `${CONFIG.consentCookieName}=true; path=/; max-age=31536000`;
 
     const utm = getUTMParamsFromURL();
@@ -227,18 +218,19 @@
     } else if (!existing) {
       const ref = getReferrerSource();
       if (ref) {
-        storeUTM({
+        const fallback = {
           utm_source: ref,
           utm_medium: 'referral',
           fallback: true
-        });
-        console.log('🔁 Fallback referrer UTM:', ref);
+        };
+        storeUTM(fallback);
+        console.log('🔁 Fallback referrer UTM stored:', fallback);
       } else {
         restoreFromCookieIfNeeded();
       }
     }
 
-    // ✅ Log page view only after UTM is ensured
+    // ✅ After UTM is saved, log event
     logEvent('page_view');
     if (CONFIG.reportGeneration === 'auto') {
       console.log('📊 Report:', generateReport());
