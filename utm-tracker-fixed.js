@@ -1,4 +1,4 @@
-// UTM Tracker: Final Stable Version (jsv4) with Cross-Page & Button Click Tracking
+// UTM Tracker: Version 5 - Persistent Logging + User ID
 (function (window, document) {
   const CONFIG = {
     cookieExpirationDays: 90,
@@ -8,8 +8,10 @@
 
   const UTM_PARAMS = ['utm_source', 'utm_medium', 'utm_campaign', 'utm_term', 'utm_content'];
   const STORAGE_KEY = 'utm_tracking_data';
-  const USER_ID_KEY = 'user_id';
-  const reportLog = [];
+  const REPORT_LOG_KEY = 'utm_report_log';
+  const USER_ID_KEY = 'utm_user_id';
+
+  // ------------------ Helpers ------------------
 
   function getCookie(name) {
     const cookies = `; ${document.cookie}`;
@@ -20,14 +22,6 @@
   function setCookie(name, value, days) {
     const expires = new Date(Date.now() + days * 864e5).toUTCString();
     document.cookie = `${name}=${encodeURIComponent(value)}; path=/; expires=${expires}`;
-  }
-
-  function getUserId() {
-    const existing = localStorage.getItem(USER_ID_KEY);
-    if (existing) return existing;
-    const id = crypto.randomUUID();
-    localStorage.setItem(USER_ID_KEY, id);
-    return id;
   }
 
   function getUTMParamsFromURL() {
@@ -73,6 +67,15 @@
     }
   }
 
+  function getUserId() {
+    let id = localStorage.getItem(USER_ID_KEY);
+    if (!id) {
+      id = crypto.randomUUID();
+      localStorage.setItem(USER_ID_KEY, id);
+    }
+    return id;
+  }
+
   function logEvent(type, details = {}) {
     const utm = getStoredUTMData();
     const userId = getUserId();
@@ -84,67 +87,67 @@
       pageURL: window.location.href,
       ...details
     };
-    reportLog.push(event);
+
+    // Load + append to report log
+    let stored = [];
+    try {
+      stored = JSON.parse(localStorage.getItem(REPORT_LOG_KEY)) || [];
+    } catch (e) {
+      console.warn("Couldn't parse existing log:", e);
+    }
+
+    stored.push(event);
+    localStorage.setItem(REPORT_LOG_KEY, JSON.stringify(stored));
     console.log(`📌 Event logged: ${type}`, event);
   }
 
   function generateReport() {
-    const report = {
-      totalEvents: reportLog.length,
-      utmSources: {},
-      funnel: {},
-      timeMetrics: {},
-      userJourneys: {}
+    let stored = [];
+    try {
+      stored = JSON.parse(localStorage.getItem(REPORT_LOG_KEY)) || [];
+    } catch (e) {
+      console.warn("Couldn't read saved report log:", e);
+    }
+
+    const funnel = {};
+    const timeMetrics = {};
+    const userJourneys = {};
+    const utmSources = {};
+
+    stored.forEach(e => {
+      funnel[e.eventType] = (funnel[e.eventType] || 0) + 1;
+      if (e.utm && e.utm.utm_source) {
+        utmSources[e.utm.utm_source] = (utmSources[e.utm.utm_source] || 0) + 1;
+      }
+      if (e.userId) {
+        timeMetrics[e.userId] = timeMetrics[e.userId] || [];
+        timeMetrics[e.userId].push(e.timestamp);
+
+        userJourneys[e.userId] = userJourneys[e.userId] || [];
+        userJourneys[e.userId].push({ event: e.eventType, url: e.pageURL, time: e.timestamp });
+      }
+    });
+
+    return {
+      totalEvents: stored.length,
+      funnel,
+      utmSources,
+      timeMetrics,
+      userJourneys
     };
-
-    const startTime = {};
-
-    reportLog.forEach(entry => {
-      const src = entry.utm?.utm_source || 'unknown';
-      const type = entry.eventType;
-      const uid = entry.userId || 'unknown';
-
-      report.utmSources[src] = (report.utmSources[src] || 0) + 1;
-      report.funnel[type] = (report.funnel[type] || 0) + 1;
-
-      if (!startTime[uid]) startTime[uid] = new Date(entry.timestamp);
-      const duration = new Date(entry.timestamp) - startTime[uid];
-      report.timeMetrics[uid] = report.timeMetrics[uid] || [];
-      report.timeMetrics[uid].push(duration);
-
-      report.userJourneys[uid] = report.userJourneys[uid] || [];
-      report.userJourneys[uid].push({ event: type, time: entry.timestamp, page: entry.pageURL });
-    });
-
-    return report;
   }
 
-  function appendUserIdToLinks(userId) {
-    document.querySelectorAll('a[href^="/"], a[href^="https://www.briteorthodontics.com"]').forEach(link => {
-      const url = new URL(link.href);
-      url.searchParams.set("uid", userId);
-      link.href = url.toString();
-    });
-  }
-
-  function bindButtonClickTracking() {
-    document.querySelectorAll('button, a, input[type="submit"]').forEach(el => {
-      const label = el.innerText || el.value || el.getAttribute('aria-label') || 'unknown';
-      el.addEventListener('click', () => {
-        logEvent("button_click", {
-          label,
-          elementId: el.id || null
-        });
-      });
-    });
-  }
+  // ------------------ Init ------------------
 
   window.addEventListener('DOMContentLoaded', () => {
-    console.log('🔥 DOMContentLoaded in UTM Tracker v4');
+    console.log('🔥 DOMContentLoaded in UTM Tracker v5');
     document.cookie = `${CONFIG.consentCookieName}=true; path=/; max-age=31536000`;
 
     const utm = getUTMParamsFromURL();
     const existing = getStoredUTMData();
+
+    console.log('🔍 URL Params:', utm);
+    console.log('📦 Existing UTM:', existing);
 
     if (Object.keys(utm).length > 0 && !existing) {
       console.log('✅ UTM from URL being stored now');
@@ -153,9 +156,7 @@
       restoreUTMFromCookie();
     }
 
-    const userId = getUserId();
-    appendUserIdToLinks(userId);
-    bindButtonClickTracking();
+    // Page view tracking
     logEvent('page_view');
 
     if (CONFIG.reportGeneration === 'auto') {
@@ -163,6 +164,7 @@
     }
   });
 
+  // Expose API
   window.UTMTracker = {
     logEvent,
     generateReport
