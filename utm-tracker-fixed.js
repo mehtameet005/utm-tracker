@@ -1,4 +1,5 @@
 // UTM Tracker: Version 7 - Page Views + Clicks + Backend Sync + User ID
+console.log('🟢 UTM Tracker Script Executing...');
 (function (window, document) {
   const CONFIG = {
     cookieExpirationDays: 90,
