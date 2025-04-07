@@ -1,10 +1,10 @@
-// UTM Tracker: Version 6 - Persistent Logs + Backend Submission + User ID
+// UTM Tracker: Version 7 - Page Views + Clicks + Backend Sync + User ID
 (function (window, document) {
   const CONFIG = {
     cookieExpirationDays: 90,
     consentCookieName: 'tracking_consent',
     reportGeneration: 'auto',
-    apiEndpoint: 'http://localhost:3000/log' // <-- UPDATE THIS IF NEEDED
+    apiEndpoint: 'http://localhost:3000/log' // <-- update when deploying
   };
 
   const UTM_PARAMS = ['utm_source', 'utm_medium', 'utm_campaign', 'utm_term', 'utm_content'];
@@ -26,7 +26,7 @@
   function getUTMParamsFromURL() {
     const params = new URLSearchParams(window.location.search);
     const result = {};
-    UTM_PARAMS.forEach((key) => {
+    UTM_PARAMS.forEach(key => {
       if (params.has(key)) result[key] = params.get(key);
     });
     return result;
@@ -141,9 +141,20 @@
     };
   }
 
+  // Attach global click listener
+  function attachClickTracker() {
+    document.body.addEventListener('click', function (e) {
+      const target = e.target.closest('a, button');
+      if (target) {
+        const label = target.innerText?.trim().slice(0, 100) || target.getAttribute('aria-label') || 'unlabeled';
+        logEvent('click', { label });
+      }
+    });
+  }
+
   // ---------------- Init ----------------
   window.addEventListener('DOMContentLoaded', () => {
-    console.log('🔥 UTM Tracker v6 DOM Ready');
+    console.log('🔥 UTM Tracker v7 DOM Ready');
     document.cookie = `${CONFIG.consentCookieName}=true; path=/; max-age=31536000`;
 
     const utm = getUTMParamsFromURL();
@@ -156,14 +167,15 @@
       restoreUTMFromCookie();
     }
 
-    // Auto-track page view
     logEvent('page_view');
+    attachClickTracker();
 
     if (CONFIG.reportGeneration === 'auto') {
       console.log('📊 Report:', generateReport());
     }
   });
 
+  // Expose for manual use
   window.UTMTracker = {
     logEvent,
     generateReport
