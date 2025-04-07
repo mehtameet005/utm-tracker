@@ -1,4 +1,5 @@
-// UTM Tracker: Version 8 - Full SPA Support + Clicks + Backend + Persistence
+// UTM Tracker: Version 9 - Click Tracking Fix + Page Views + Backend Logging
+console.log('🟢 UTM Tracker Script Executing...');
 (function (window, document) {
   const CONFIG = {
     cookieExpirationDays: 90,
@@ -34,14 +35,10 @@
 
   function storeUTMParams(data) {
     const fullData = { ...data, firstVisit: new Date().toISOString() };
-    try {
-      const json = JSON.stringify(fullData);
-      localStorage.setItem(STORAGE_KEY, json);
-      setCookie(STORAGE_KEY, json, CONFIG.cookieExpirationDays);
-      console.log('📦 Stored UTM:', fullData);
-    } catch (e) {
-      console.error('❌ Failed to store UTM data:', e);
-    }
+    const json = JSON.stringify(fullData);
+    localStorage.setItem(STORAGE_KEY, json);
+    setCookie(STORAGE_KEY, json, CONFIG.cookieExpirationDays);
+    console.log('📦 Stored UTM:', fullData);
   }
 
   function getStoredUTMData() {
@@ -87,7 +84,6 @@
       ...details
     };
 
-    // Local save
     let stored = [];
     try {
       stored = JSON.parse(localStorage.getItem(REPORT_LOG_KEY)) || [];
@@ -95,16 +91,15 @@
     stored.push(event);
     localStorage.setItem(REPORT_LOG_KEY, JSON.stringify(stored));
 
-    // Backend sync
     if (CONFIG.apiEndpoint) {
       fetch(CONFIG.apiEndpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(event)
       }).then(() => {
-        console.log('🚀 Sent to backend:', type);
+        console.log('🚀 Event sent to backend:', type);
       }).catch(err => {
-        console.error('❌ Failed to send to backend:', err);
+        console.error('❌ Backend log failed:', err);
       });
     }
 
@@ -149,33 +144,31 @@
     document.body.addEventListener('click', function (e) {
       const target = e.target.closest('a, button');
       if (target) {
-        const label = target.innerText?.trim().slice(0, 100) || target.getAttribute('aria-label') || 'unlabeled';
+        const label = (
+          target.innerText?.trim() ||
+          target.getAttribute('aria-label') ||
+          target.getAttribute('title') ||
+          target.id ||
+          'unlabeled'
+        ).slice(0, 100);
+        console.log('🖱️ Click detected on:', label);
         logEvent('click', { label });
       }
     });
   }
 
-  function attachSPAPageChangeTracker() {
-    let lastURL = window.location.href;
-    setInterval(() => {
-      const current = window.location.href;
-      if (current !== lastURL) {
-        lastURL = current;
-        logEvent('page_view');
-        console.log('🔄 SPA Navigation Tracked:', current);
-      }
-    }, 1000); // Check every second
-  }
-
-  // ------------- INIT ----------------
   window.addEventListener('DOMContentLoaded', () => {
-    console.log('🔥 UTM Tracker v8 Ready');
+    console.log('🔥 DOMContentLoaded in UTM Tracker v9');
     document.cookie = `${CONFIG.consentCookieName}=true; path=/; max-age=31536000`;
 
     const utm = getUTMParamsFromURL();
     const existing = getStoredUTMData();
 
+    console.log('🔍 URL Params:', utm);
+    console.log('📦 Existing UTM:', existing);
+
     if (Object.keys(utm).length > 0 && !existing) {
+      console.log('✅ Storing UTM from URL');
       storeUTMParams(utm);
     } else if (!existing) {
       restoreUTMFromCookie();
@@ -183,7 +176,6 @@
 
     logEvent('page_view');
     attachClickTracker();
-    attachSPAPageChangeTracker();
 
     if (CONFIG.reportGeneration === 'auto') {
       console.log('📊 Report:', generateReport());
