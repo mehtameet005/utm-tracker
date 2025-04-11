@@ -1,11 +1,11 @@
-// UTM Tracker: Version 9 - Click Tracking Fix + Page Views + Backend Logging
-console.log('🟢 UTM Tracker Script Executing...');
+// UTM Tracker: Version 10 - First Visit URL + Persistent Tracking + Backend Sync + User ID
+console.log('🟢 UTM Tracker v10 Script Executing...');
 (function (window, document) {
   const CONFIG = {
     cookieExpirationDays: 90,
     consentCookieName: 'tracking_consent',
     reportGeneration: 'auto',
-    apiEndpoint: 'http://localhost:3000/log'
+    apiEndpoint: 'http://localhost:3000/log' // <-- update when deploying
   };
 
   const UTM_PARAMS = ['utm_source', 'utm_medium', 'utm_campaign', 'utm_term', 'utm_content'];
@@ -34,7 +34,11 @@ console.log('🟢 UTM Tracker Script Executing...');
   }
 
   function storeUTMParams(data) {
-    const fullData = { ...data, firstVisit: new Date().toISOString() };
+    const fullData = {
+      ...data,
+      firstVisit: new Date().toISOString(),
+      firstLandingPage: window.location.href
+    };
     const json = JSON.stringify(fullData);
     localStorage.setItem(STORAGE_KEY, json);
     setCookie(STORAGE_KEY, json, CONFIG.cookieExpirationDays);
@@ -84,6 +88,7 @@ console.log('🟢 UTM Tracker Script Executing...');
       ...details
     };
 
+    // Save locally
     let stored = [];
     try {
       stored = JSON.parse(localStorage.getItem(REPORT_LOG_KEY)) || [];
@@ -91,6 +96,7 @@ console.log('🟢 UTM Tracker Script Executing...');
     stored.push(event);
     localStorage.setItem(REPORT_LOG_KEY, JSON.stringify(stored));
 
+    // Send to backend
     if (CONFIG.apiEndpoint) {
       fetch(CONFIG.apiEndpoint, {
         method: 'POST',
@@ -98,7 +104,7 @@ console.log('🟢 UTM Tracker Script Executing...');
         body: JSON.stringify(event)
       }).then(() => {
         console.log('🚀 Event sent to backend:', type);
-      }).catch(err => {
+      }).catch((err) => {
         console.error('❌ Backend log failed:', err);
       });
     }
@@ -142,23 +148,42 @@ console.log('🟢 UTM Tracker Script Executing...');
 
   function attachClickTracker() {
     document.body.addEventListener('click', function (e) {
-      const target = e.target.closest('a, button');
+      const target = e.target.closest('a, button, input[type="submit"]');
       if (target) {
-        const label = (
-          target.innerText?.trim() ||
-          target.getAttribute('aria-label') ||
-          target.getAttribute('title') ||
-          target.id ||
-          'unlabeled'
-        ).slice(0, 100);
-        console.log('🖱️ Click detected on:', label);
-        logEvent('click', { label });
+        const label = (target.innerText || target.value || '').trim().toLowerCase();
+        let type = 'click';
+
+        if (/sign\s?up|register/.test(label)) type = 'signup';
+        else if (/buy|checkout|purchase|order/.test(label)) type = 'purchase';
+
+        logEvent(type, { label });
       }
     });
   }
 
+  function attachFormTracker() {
+    document.querySelectorAll('form').forEach(form => {
+      if (!form.dataset.tracked && form.querySelector('input[type="email"]')) {
+        form.dataset.tracked = 'true';
+        form.addEventListener('submit', () => {
+          const fields = {};
+          new FormData(form).forEach((val, key) => (fields[key] = val));
+          logEvent('form_submit', { formId: form.id || null, fields });
+        });
+      }
+    });
+  }
+
+  function watchForDynamicForms() {
+    new MutationObserver(attachFormTracker).observe(document.body, {
+      childList: true,
+      subtree: true
+    });
+  }
+
+  // ---------------- Init ----------------
   window.addEventListener('DOMContentLoaded', () => {
-    console.log('🔥 DOMContentLoaded in UTM Tracker v9');
+    console.log('🔥 DOMContentLoaded in UTM Tracker v10');
     document.cookie = `${CONFIG.consentCookieName}=true; path=/; max-age=31536000`;
 
     const utm = getUTMParamsFromURL();
@@ -176,6 +201,8 @@ console.log('🟢 UTM Tracker Script Executing...');
 
     logEvent('page_view');
     attachClickTracker();
+    attachFormTracker();
+    watchForDynamicForms();
 
     if (CONFIG.reportGeneration === 'auto') {
       console.log('📊 Report:', generateReport());
